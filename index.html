@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- PWA / fullscreen on iOS: add to Home Screen for best experience -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Plectra</title>
+    <link rel="manifest" href="/Plectra/manifest.json" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+
+    <!-- Top bar -->
+    <div id="top-bar">
+      <button id="find-btn" aria-label="Find music">Find music</button>
+      <input id="bar-number-btn" type="number" inputmode="numeric" readonly aria-label="Jump to bar" class="hidden" />
+    </div>
+
+    <!-- Find music dialog (bottom sheet) -->
+    <div id="find-dialog" class="hidden" role="dialog" aria-modal="true" aria-label="Find music">
+      <div id="find-dialog-inner">
+        <div id="find-header">
+          <button id="find-back" aria-label="Back" class="hidden">&#8592;</button>
+          <span id="find-title">Choose a score</span>
+          <div id="find-header-right">
+            <button id="load-btn" aria-label="Load score">Load file</button>
+            <button id="find-close" aria-label="Close">✕</button>
+          </div>
+        </div>
+        <div id="find-status"></div>
+        <div id="find-results"></div>
+      </div>
+    </div>
+
+    <!-- Title/composer overlay (bar 1 only, zero-height so it overlays the score) -->
+    <div id="score-info" class="hidden">
+      <div id="score-info-inner">
+        <div id="score-title"></div>
+        <div id="score-composer"></div>
+      </div>
+    </div>
+
+    <!-- Score area -->
+    <div id="score-container"></div>
+
+    <!-- Right-edge next-bar zone (10 px wide, full viewport height) -->
+    <div id="next-bar-zone"></div>
+
+    <!-- Hidden file picker — triggered by the Load button -->
+    <input id="file-input" type="file" accept=".xml,.mxl,.musicxml,application/xml,text/xml,application/zip,application/octet-stream" style="display:none" />
+
+    <!-- Navigation -->
+    <div id="nav-bar">
+      <button id="prev-btn" aria-label="Previous bar">&#8592; Prev</button>
+      <button id="next-btn" aria-label="Next bar">Next &#8594;</button>
+    </div>
+
+    <script type="module" src="/src/app.ts"></script>
+  </body>
+</html>

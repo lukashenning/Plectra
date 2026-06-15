@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <work><work-title>Piano Sonata No. 11, K.331 — Theme (Andante grazioso)</work-title></work>
+  <identification><creator type="composer">W. A. Mozart</creator></identification>
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <!-- A major, 6/8. divisions=4 means quarter=4, so eighth=2, 16th=1, dotted-quarter=6 -->
+
+    <measure number="1">
+      <attributes>
+        <divisions>4</divisions>
+        <key><fifths>3</fifths><mode>major</mode></key>
+        <time><beats>6</beats><beat-type>8</beat-type></time>
+        <staves>2</staves>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <!-- Treble: dotted quarter chord C#5+E5+A5, then eighth B4+E5+G#5 -->
+      <note><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>A</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>G</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <!-- Bass: A2+E3 dotted quarter, E2+B2 eighth -->
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>E</step><octave>3</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><pitch><step>E</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>B</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+
+    <measure number="2">
+      <!-- Treble: dotted quarter A4+C#5+E5, then 16th run B4-C#5-D5-E5 -->
+      <note><pitch><step>A</step><octave>4</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">begin</beam><beam number="2">begin</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">continue</beam><beam number="2">continue</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">continue</beam><beam number="2">continue</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">end</beam><beam number="2">end</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <!-- Bass -->
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>E</step><octave>3</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+
+    <measure number="3">
+      <!-- D5+F#5+A5 dotted quarter, C#5+E5 eighth -->
+      <note><pitch><step>D</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>F</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>A</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <!-- Bass: D2+A2 dotted, A2 eighth -->
+      <note><pitch><step>D</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+
+    <measure number="4">
+      <!-- E5+A5 dotted quarter, then descending 16ths D5-C#5-B4-A4 -->
+      <note><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>A</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">begin</beam><beam number="2">begin</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">continue</beam><beam number="2">continue</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">continue</beam><beam number="2">continue</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">end</beam><beam number="2">end</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <!-- Bass: E2+B2 dotted, E2 eighth -->
+      <note><pitch><step>E</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>B</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><pitch><step>E</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+
+    <measure number="5">
+      <!-- repeat of bar 1 material: C#5+E5+A5 dotted, B4+E5+G#5 eighth -->
+      <note><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>A</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>G</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>E</step><octave>3</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><pitch><step>E</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>B</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+
+    <measure number="6">
+      <!-- A4+C#5+E5 dotted, then 16ths B4-C#5-D5-E5 -->
+      <note><pitch><step>A</step><octave>4</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>B</step><octave>4</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">begin</beam><beam number="2">begin</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">continue</beam><beam number="2">continue</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">continue</beam><beam number="2">continue</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>1</duration><type>16th</type>
+        <beam number="1">end</beam><beam number="2">end</beam>
+        <staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>E</step><octave>3</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+
+    <measure number="7">
+      <!-- D5+F#5+A5 dotted, C#5+E5 eighth -->
+      <note><pitch><step>D</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>F</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>A</step><octave>5</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>1</staff><voice>1</voice></note>
+      <note><pitch><step>D</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>6</duration><type>quarter</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>2</duration><type>eighth</type><staff>2</staff><voice>5</voice></note>
+    </measure>
+
+    <measure number="8">
+      <!-- Cadence: A4+C#5+E5 dotted half -->
+      <note><pitch><step>A</step><octave>4</octave></pitch>
+        <duration>12</duration><type>half</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>C</step><octave>5</octave><alter>1</alter></pitch>
+        <duration>12</duration><type>half</type><dot/><staff>1</staff><voice>1</voice></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch>
+        <duration>12</duration><type>half</type><dot/><staff>1</staff><voice>1</voice></note>
+      <!-- Bass: A2+E2 dotted half -->
+      <note><pitch><step>A</step><octave>2</octave></pitch>
+        <duration>12</duration><type>half</type><dot/><staff>2</staff><voice>5</voice></note>
+      <note><chord/><pitch><step>E</step><octave>3</octave></pitch>
+        <duration>12</duration><type>half</type><dot/><staff>2</staff><voice>5</voice></note>
+    </measure>
+  </part>
+</score-partwise>

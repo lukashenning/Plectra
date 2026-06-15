@@ -1,0 +1,21 @@
+{
+  "name": "Plectra",
+  "short_name": "Plectra",
+  "start_url": "/Plectra/",
+  "scope": "/Plectra/",
+  "display": "standalone",
+  "background_color": "#f8f8f6",
+  "theme_color": "#f8f8f6",
+  "icons": [
+    {
+      "src": "/Plectra/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/Plectra/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
