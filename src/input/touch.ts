@@ -296,7 +296,13 @@ function staffYRange(targets: HitTarget[], staff: number): [number, number] | nu
     if (t.y       < lo) lo = t.y;
     if (t.y + t.h > hi) hi = t.y + t.h;
   }
-  return lo === Infinity ? null : [lo - STAFF_Y_PAD, hi + STAFF_Y_PAD];
+  if (lo === Infinity) return null;
+  // Single-staff: no bottom padding — stop exactly at the lowest hit-target edge
+  // so the gap zone below stays dead (no note activation, no tap-advance fallthrough).
+  if (currentStaffTops.length === 1 && staff === 1) {
+    return [lo - STAFF_Y_PAD, hi];
+  }
+  return [lo - STAFF_Y_PAD, hi + STAFF_Y_PAD];
 }
 
 interface BeatResult { beatPrefix: string; closestNote: HitTarget; }
@@ -420,7 +426,6 @@ const TAP_ADVANCE_MARGIN_BOTTOM = 40; // below the staff area
  */
 function getTapAdvanceArea(svg: SVGSVGElement, staff: number): [number, number] | null {
   const sc = svgScale(svg);
-  const vb = svg.viewBox.baseVal;
   const staffTop = currentStaffTops[staff - 1];
   if (staffTop === undefined) return null;
 
@@ -433,6 +438,7 @@ function getTapAdvanceArea(svg: SVGSVGElement, staff: number): [number, number] 
 
   const lastStaffIdx = currentStaffTops.length - 1;
   if (staff === lastStaffIdx + 1) {
+    const vb = svg.viewBox.baseVal;
     const areaTop    = staffTop + STAFF_HEIGHT + TAP_ADVANCE_MARGIN_BOTTOM;
     const areaBottom = vb.height + sc.oY * sc.sy;
     if (areaBottom <= areaTop) return null;
@@ -442,9 +448,28 @@ function getTapAdvanceArea(svg: SVGSVGElement, staff: number): [number, number] 
   return null; // intermediate staves have no tap-advance area
 }
 
+// When there is only one staff, also expose a tap-advance area below it
+// (20 px gap from the bottom of the staff, same advance effect as the top area).
+function getBottomTapAdvanceAreaSingleStaff(svg: SVGSVGElement): [number, number] | null {
+  if (currentStaffTops.length !== 1) return null;
+  const sc = svgScale(svg);
+  const vb = svg.viewBox.baseVal;
+  const staffTop = currentStaffTops[0];
+  const GAP_BOTTOM = 100;
+  const areaTop    = staffTop + STAFF_HEIGHT + GAP_BOTTOM;
+  const areaBottom = vb.height + sc.oY * sc.sy;
+  if (areaBottom <= areaTop) return null;
+  return [areaTop, areaBottom];
+}
+
 function isTapAdvanceAreaY(svg: SVGSVGElement, staff: number, touchY: number): boolean {
   const area = getTapAdvanceArea(svg, staff);
-  return area !== null && touchY >= area[0] && touchY < area[1];
+  if (area !== null && touchY >= area[0] && touchY < area[1]) return true;
+  if (staff === 1) {
+    const bottom = getBottomTapAdvanceAreaSingleStaff(svg);
+    if (bottom !== null && touchY >= bottom[0] && touchY < bottom[1]) return true;
+  }
+  return false;
 }
 
 function sortedBeatsOnStaff(targets: HitTarget[], staff: number): string[] {
@@ -827,6 +852,22 @@ export function attachTouchHandlers(
   (svg.style as any).webkitTouchCallout = 'none';
   svg.addEventListener('contextmenu', e => e.preventDefault());
 
+  // Returns true when y is in the dead zone between the lowest note hit target on
+  // the last staff and the start of the bottom tap-advance area.
+  function inBottomDeadZone(targets: HitTarget[], y: number): boolean {
+    const n = currentStaffTops.length;
+    if (n === 0) return false;
+    const lastTop = currentStaffTops[n - 1];
+    const gap = n === 1 ? 100 : TAP_ADVANCE_MARGIN_BOTTOM;
+    const tapStart = lastTop + STAFF_HEIGHT + gap;
+    const pfx = `${n}-`;
+    const lowestHit = targets.reduce(
+      (m, t) => t.noteId.startsWith(pfx) ? Math.max(m, t.y + t.h) : m,
+      lastTop + STAFF_HEIGHT,
+    );
+    return y > lowestHit && y < tapStart;
+  }
+
   svg.addEventListener('pointerdown', (e: PointerEvent) => {
     if (transitions.has(e.pointerId)) return;
     e.preventDefault();
@@ -838,6 +879,7 @@ export function attachTouchHandlers(
     const hh = touchHalfH(e, sc);
     upsertIndicator(svg, e.pointerId, x, y, e.width ?? 1, e.height ?? 1);
 
+
     trackAndGetVelocity(e.pointerId, e.clientX, e.clientY);
     const touchH = e.height ?? 0;
     const targets = getTargets();
@@ -848,8 +890,10 @@ export function attachTouchHandlers(
       return;
     }
 
+    // Single-staff bottom gap: dead zone between staff bottom and tap area.
     const st = makePointerState(x, y);
     pointers.set(e.pointerId, st);
+    if (inBottomDeadZone(targets, y)) return;
     for (const s of staffNums()) {
       updateStaff(svg, targets, st.staffs[s], s, x, y, hh, 0, touchH, undefined, true, true);
     }
@@ -910,6 +954,7 @@ export function attachTouchHandlers(
     const touchH = e.height ?? 0;
     if (!st.isTapAdvance) {
       const targets = getTargets();
+      if (inBottomDeadZone(targets, y)) { st.wiggle.update(e.clientX); return; }
       for (const s of staffNums()) {
         updateStaff(svg, targets, st.staffs[s], s, x, y, hh, vel, touchH, prevX);
       }

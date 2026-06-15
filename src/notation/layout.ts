@@ -95,7 +95,13 @@ export interface DynamicSymbol {
   staff: number;
 }
 
-export type LayoutSymbol = NoteSymbol | RestSymbol | BeamGroup | StaffLines | DynamicSymbol;
+export interface TupletNumber {
+  kind: 'tuplet';
+  x: number; y: number;
+  number: number;
+}
+
+export type LayoutSymbol = NoteSymbol | RestSymbol | BeamGroup | StaffLines | DynamicSymbol | TupletNumber;
 
 export interface SlurAnchor { y: number; above: boolean; }
 
@@ -120,6 +126,9 @@ function toMidi(pitch: { step: string; octave: number; alter: number }): number 
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Round beat position to avoid floating-point drift when accumulating triplets. */
+
 
 function durationInBeats(type: NoteType, dots: number, timeMod?: { actualNotes: number; normalNotes: number }): number {
   const base: Record<NoteType, number> = {
@@ -149,12 +158,58 @@ export function computeBarBeats(bar: Bar): number[] {
     const key = `${ev.staff}-${ev.voice}`;
     if (beatByVoice[key] === undefined) beatByVoice[key] = 0;
     set.add(beatByVoice[key]);
-    beatByVoice[key] += durationInBeats(
+    beatByVoice[key] = beatByVoice[key] + durationInBeats(
       ev.type, ev.dots,
       ev.kind === 'note' ? ev.timeModification : undefined,
     );
   }
   return [...set].sort((a, b) => a - b);
+}
+
+/**
+ * Returns the best beat position at which to split a bar for display.
+ * Defaults to barLengthQN/2 but moves the split to avoid cutting through
+ * a triplet group (3 consecutive notes with actualNotes=3).
+ */
+export function computeSplitPoint(bar: Bar, barLengthQN: number): number {
+  const idealSplit = barLengthQN / 2;
+
+  const beatByVoice: Record<string, number> = {};
+  const runByVoice: Record<string, { start: number; count: number }> = {};
+  const groups: { start: number; end: number }[] = [];
+
+  for (const ev of bar.events) {
+    if (ev.kind === 'dynamic') continue;
+    if (ev.kind === 'note' && ev.chord) continue;
+    const key = `${ev.staff}-${ev.voice}`;
+    if (beatByVoice[key] === undefined) beatByVoice[key] = 0;
+    const beat = beatByVoice[key];
+    const dur = durationInBeats(ev.type, ev.dots, ev.kind === 'note' ? ev.timeModification : undefined);
+    const isTriplet = ev.kind === 'note' && ev.timeModification?.actualNotes === 3;
+
+    if (isTriplet) {
+      if (!runByVoice[key]) {
+        runByVoice[key] = { start: beat, count: 1 };
+      } else {
+        runByVoice[key].count++;
+        if (runByVoice[key].count === 3) {
+          groups.push({ start: runByVoice[key].start, end: beat + dur });
+          delete runByVoice[key];
+        }
+      }
+    } else {
+      delete runByVoice[key];
+    }
+
+    beatByVoice[key] = beatByVoice[key] + dur;
+  }
+
+  for (const g of groups) {
+    if (idealSplit > g.start + 0.001 && idealSplit < g.end - 0.001) {
+      return (idealSplit - g.start) <= (g.end - idealSplit) ? g.start : g.end;
+    }
+  }
+  return idealSplit;
 }
 
 // ── Main layout function ───────────────────────────────────────────────────────
@@ -184,7 +239,9 @@ export function layoutBar(
     const clef = activeClefs[i + 1] ?? (i === 0 ? { sign: 'G' as ClefSign, line: 2 } : { sign: 'F' as ClefSign, line: 4 });
     staffMiddleCYs.push(middleCYForClef(top, clef.sign, clef.line, clef.octaveChange ?? 0));
   }
-  const svgHeight = TOP_MARGIN + staffCount * STAFF_HEIGHT + (staffCount - 1) * interGap + BOTTOM_MARGIN;
+  // Single-staff layout needs extra bottom room: 60 gap + 60 tap area (mirroring top).
+  const effectiveBottomMargin = staffCount === 1 ? 160 : BOTTOM_MARGIN;
+  const svgHeight = TOP_MARGIN + staffCount * STAFF_HEIGHT + (staffCount - 1) * interGap + effectiveBottomMargin;
 
   function noteY(diatonicFromMiddleC: number, staff: number): number {
     return staffMiddleCYs[staff - 1] - diatonicFromMiddleC * STEP_PX;
@@ -214,7 +271,7 @@ export function layoutBar(
     if (beatByStaff[ev.staff] === undefined) beatByStaff[ev.staff] = 0;
     const b = beatByStaff[ev.staff];
     if (b >= pageStartBeat && b < pageEnd) uniqueBeats.add(b);
-    beatByStaff[ev.staff] += durationInBeats(ev.type, ev.dots, ev.kind === 'note' ? ev.timeModification : undefined);
+    beatByStaff[ev.staff] = beatByStaff[ev.staff] + durationInBeats(ev.type, ev.dots, ev.kind === 'note' ? ev.timeModification : undefined);
   }
 
   const baseNoteAreaWidth = containerWidth - prefixWidth - RIGHT_MARGIN;
@@ -290,7 +347,7 @@ export function layoutBar(
       return {
         kind: 'note',
         x: raw.x, y: raw.y,
-        noteId: `${staff}-${raw.beatStart}-${raw.note.pitch.step}${raw.note.pitch.octave}`,
+        noteId: `${staff}-${Math.round(raw.beatStart * 1000)}-${raw.note.pitch.step}${raw.note.pitch.octave}`,
         noteType: raw.note.type,
         dots: raw.note.dots,
         filled: raw.note.type !== 'whole' && raw.note.type !== 'half',
@@ -376,9 +433,18 @@ export function layoutBar(
             }
           }
         }
+        // Tuplet number indicator (e.g. "3" for triplets)
+        const timeMod = beamGroup[0]?.note.timeModification;
+        if (timeMod) {
+          const midX = (first.stemX + last.stemX) / 2;
+          const beamMidY = (first.stemY2 + last.stemY2) / 2;
+          const tupletY = stemUp ? beamMidY - SPACE * 1.5 : beamMidY + SPACE * 1.5;
+          symbols.push({ kind: 'tuplet', x: midX, y: tupletY, number: timeMod.actualNotes });
+        }
       } else if (syms.length === 1) {
         syms[0].hasFlag = true;
       }
+
       beamGroup = [];
     }
 

@@ -275,6 +275,19 @@ export function renderBar(
 
     } else if (sym.kind === 'dynamic') {
       drawDynamic(svg, sym.x, sym.y, sym.value);
+    } else if (sym.kind === 'tuplet') {
+      const txt = el('text', {
+        x: sym.x, y: sym.y,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'middle',
+        'font-size': '18',
+        'font-weight': 'bold',
+        'font-style': 'italic',
+        'font-family': 'serif',
+        fill: '#111',
+      });
+      txt.textContent = String(sym.number);
+      svg.appendChild(txt);
     }
   }
 

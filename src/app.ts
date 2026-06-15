@@ -1,7 +1,7 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import rawMusicIndex from './music-index.json';
 import { parseMusicXML } from './musicxml/parser';
-import { layoutBar, computeBarBeats, computePrefixWidth, HIT_W_MIN, RIGHT_MARGIN, type SlurAnchor } from './notation/layout';
+import { layoutBar, computeBarBeats, computePrefixWidth, computeSplitPoint, HIT_W_MIN, RIGHT_MARGIN, type SlurAnchor } from './notation/layout';
 import { renderBar, type HitTarget } from './notation/renderer';
 import { attachTouchHandlers, stopAllNotes, captureForTransition } from './input/touch';
 import { installIOSFixes } from './input/ios';
@@ -58,6 +58,8 @@ const fileInput      = document.getElementById('file-input') as HTMLInputElement
 const prevBtn        = document.getElementById('prev-btn')!;
 const nextBtn        = document.getElementById('next-btn')!;
 const nextBarZone    = document.getElementById('next-bar-zone')!;
+
+barNumberEl.classList.add('hidden');
 
 // ── Page / state precomputation ───────────────────────────────────────────────
 
@@ -130,10 +132,10 @@ function buildPages(s: Score, states: BarState[], containerWidth: number): Page[
     if (!needsSplit) {
       result.push({ barIndex: bi, startBeat: 0, endBeat: barLengthQN, isFirstInBar: true, isLastInBar: true });
     } else {
-      // Split at the temporal midpoint of the bar (first half / second half).
-      const midBeat = barLengthQN / 2;
-      result.push({ barIndex: bi, startBeat: 0,       endBeat: midBeat,     isFirstInBar: true,  isLastInBar: false });
-      result.push({ barIndex: bi, startBeat: midBeat, endBeat: barLengthQN, isFirstInBar: false, isLastInBar: true  });
+      // Split at the temporal midpoint, adjusted to avoid cutting through a triplet group.
+      const splitBeat = computeSplitPoint(bar, barLengthQN);
+      result.push({ barIndex: bi, startBeat: 0,         endBeat: splitBeat,   isFirstInBar: true,  isLastInBar: false });
+      result.push({ barIndex: bi, startBeat: splitBeat, endBeat: barLengthQN, isFirstInBar: false, isLastInBar: true  });
     }
   }
   return result;

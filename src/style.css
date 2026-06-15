@@ -253,6 +253,23 @@ body {
 .find-result-repo { font-size: 11px; color: #999; }
 .find-result-dir .find-result-title::before { content: '📁 '; font-style: normal; }
 
+/* In landscape, pad body edges to clear the notch/home-indicator safe zones */
+@media (orientation: landscape) {
+  #top-bar {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  #score-container {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  #nav-bar {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+}
+
 #nav-bar button:active { background: #eee; }
 #prev-btn { border-right: 1px solid #ddd; }
 

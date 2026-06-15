@@ -198,8 +198,14 @@ export function parseMusicXML(xmlText: string): Score {
     let localKey = currentKey;
     const offset = partStaveOffsets[partIndex];
 
-    part.querySelectorAll('measure').forEach(measureEl => {
+    let lastMeasureNum = -1;
+    for (const measureEl of Array.from(part.querySelectorAll('measure'))) {
       const num = parseInt(measureEl.getAttribute('number') ?? '1', 10);
+      // Skip implicit measures (pickup bars encoded as measure 0 by notation software).
+      if (measureEl.getAttribute('implicit') === 'yes') continue;
+      // Stop when measure numbers reset — this marks the start of a new movement.
+      if (num <= lastMeasureNum && lastMeasureNum > 0) break;
+      lastMeasureNum = num;
       const bar = parseMeasure(measureEl, num);
 
       if (bar.timeSig) localTime = bar.timeSig;
@@ -226,7 +232,7 @@ export function parseMusicXML(xmlText: string): Score {
       } else {
         barMap.set(num, bar);
       }
-    });
+    }
 
     currentTime = localTime;
     currentKey = localKey;
