@@ -5,7 +5,9 @@ import { layoutBar, computeBarBeats, computePrefixWidth, computeSplitPoint, HIT_
 import { renderBar, type HitTarget } from './notation/renderer';
 import { attachTouchHandlers, stopAllNotes, captureForTransition } from './input/touch';
 import { installIOSFixes } from './input/ios';
-import { ensureAudioReady } from './audio/synth';
+import { ensureAudioReady, setInstrument, startLoadingPianoforte, pianoforteReady, type InstrumentId } from './audio/synth';
+import { getPianoforteDynamics, setPianoforteDynamics, DEFAULT_DYNAMICS, ANCHOR_PX } from './audio/pianoforteDynamics';
+import { getSound01Dynamics, setSound01Dynamics, DEFAULT_DYNAMICS as SOUND01_DEFAULT_DYNAMICS } from './audio/sound01Dynamics';
 import type { Score, TimeSignature, KeySignature, Clef } from './types';
 
 installIOSFixes();
@@ -57,9 +59,267 @@ const loadBtn        = document.getElementById('load-btn')!;
 const fileInput      = document.getElementById('file-input') as HTMLInputElement;
 const prevBtn        = document.getElementById('prev-btn')!;
 const nextBtn        = document.getElementById('next-btn')!;
-const nextBarZone    = document.getElementById('next-bar-zone')!;
+const nextBarZone        = document.getElementById('next-bar-zone')!;
+const instrumentSelectEl = document.getElementById('instrument-select') as HTMLSelectElement;
 
 barNumberEl.classList.add('hidden');
+
+// Pre-load Pianoforte samples (works before first user gesture; context resumes on first tap)
+instrumentSelectEl.classList.add('loading');
+startLoadingPianoforte().then(() => {
+  instrumentSelectEl.classList.remove('loading');
+}).catch(() => {
+  // Pianoforte unavailable — fall back silently to Sound 01
+  instrumentSelectEl.value = 'sound01';
+  setInstrument('sound01');
+  instrumentSelectEl.classList.remove('loading');
+});
+
+instrumentSelectEl.addEventListener('change', () => {
+  if (instrumentSelectEl.value === 'pianoforte-settings') {
+    instrumentSelectEl.value = 'pianoforte';
+    openPianoforteSettings();
+    return;
+  }
+  if (instrumentSelectEl.value === 'sound01-settings') {
+    instrumentSelectEl.value = 'sound01';
+    openSound01Settings();
+    return;
+  }
+  setInstrument(instrumentSelectEl.value as InstrumentId);
+  if (instrumentSelectEl.value === 'pianoforte' && !pianoforteReady()) {
+    instrumentSelectEl.classList.add('loading');
+    startLoadingPianoforte().then(() => {
+      instrumentSelectEl.classList.remove('loading');
+    }).catch(() => {
+      instrumentSelectEl.classList.remove('loading');
+    });
+  }
+});
+
+// ── Pianoforte settings dialog ────────────────────────────────────────────────
+
+function openPianoforteSettings(): void {
+  if (document.getElementById('piano-settings-dialog')) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'piano-settings-dialog';
+  overlay.className = 'piano-settings-overlay';
+
+  const sheet = document.createElement('div');
+  sheet.className = 'piano-settings-sheet';
+
+  const header = document.createElement('div');
+  header.className = 'piano-settings-header';
+  const title = document.createElement('span');
+  title.className = 'piano-settings-title';
+  title.textContent = 'Pianoforte dynamics';
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'piano-settings-close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', () => overlay.remove());
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement('div');
+  body.className = 'piano-settings-body';
+
+  // Human-readable label for each of the 5 anchor touch heights.
+  const anchorLabels = ['25 px', '50 px', '75 px', '101 px', '126 px', '151+ px'];
+
+  // Build one section (tap or swipe) with 5 sliders.
+  // allInputs[mode][anchorIndex] holds the <input> element.
+  const allInputs: [HTMLInputElement[], HTMLInputElement[]] = [[], []];
+
+  function buildSection(mode: 'tap' | 'swipe', modeIndex: 0 | 1): void {
+    const section = document.createElement('div');
+    section.className = 'piano-settings-section';
+
+    const sectionLabel = document.createElement('div');
+    sectionLabel.className = 'piano-settings-section-label';
+    sectionLabel.textContent = mode === 'tap' ? 'Tap' : 'Swipe';
+    section.appendChild(sectionLabel);
+
+    const cur = getPianoforteDynamics();
+
+    for (let i = 0; i < ANCHOR_PX.length; i++) {
+      const row = document.createElement('div');
+      row.className = 'piano-setting-row';
+
+      const lbl = document.createElement('label');
+      lbl.className = 'piano-setting-label';
+      lbl.textContent = anchorLabels[i];
+
+      const valSpan = document.createElement('span');
+      valSpan.className = 'piano-setting-value';
+      valSpan.textContent = String(cur[mode][i]);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = '0';
+      slider.max = '100';
+      slider.value = String(cur[mode][i]);
+      slider.className = 'piano-setting-slider';
+
+      const idx = i;
+      slider.addEventListener('input', () => {
+        valSpan.textContent = slider.value;
+        const d = getPianoforteDynamics();
+        d[mode][idx] = Number(slider.value);
+        setPianoforteDynamics(d);
+      });
+
+      allInputs[modeIndex].push(slider);
+      row.appendChild(lbl);
+      row.appendChild(slider);
+      row.appendChild(valSpan);
+      section.appendChild(row);
+    }
+
+    body.appendChild(section);
+  }
+
+  buildSection('tap',   0);
+  buildSection('swipe', 1);
+
+  const footer = document.createElement('div');
+  footer.className = 'piano-settings-footer';
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'piano-settings-reset';
+  resetBtn.textContent = 'Reset defaults';
+  resetBtn.addEventListener('click', () => {
+    setPianoforteDynamics({ tap: [...DEFAULT_DYNAMICS.tap], swipe: [...DEFAULT_DYNAMICS.swipe] });
+    for (let m = 0; m < 2; m++) {
+      const mode = m === 0 ? 'tap' : 'swipe' as const;
+      for (let i = 0; i < ANCHOR_PX.length; i++) {
+        const inp = allInputs[m][i];
+        inp.value = String(DEFAULT_DYNAMICS[mode][i]);
+        inp.dispatchEvent(new Event('input'));
+      }
+    }
+  });
+  footer.appendChild(resetBtn);
+
+  sheet.appendChild(header);
+  sheet.appendChild(body);
+  sheet.appendChild(footer);
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('pointerdown', e => {
+    if (e.target === overlay) overlay.remove();
+  });
+}
+
+// ── Sound 01 settings dialog ──────────────────────────────────────────────────
+
+function openSound01Settings(): void {
+  if (document.getElementById('sound01-settings-dialog')) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'sound01-settings-dialog';
+  overlay.className = 'piano-settings-overlay';
+
+  const sheet = document.createElement('div');
+  sheet.className = 'piano-settings-sheet';
+
+  const header = document.createElement('div');
+  header.className = 'piano-settings-header';
+  const title = document.createElement('span');
+  title.className = 'piano-settings-title';
+  title.textContent = 'Sound 01 dynamics';
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'piano-settings-close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', () => overlay.remove());
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement('div');
+  body.className = 'piano-settings-body';
+
+  const anchorLabels = ['25 px', '50 px', '75 px', '101 px', '126 px', '151+ px'];
+  const allInputs: [HTMLInputElement[], HTMLInputElement[]] = [[], []];
+
+  function buildSection(mode: 'tap' | 'swipe', modeIndex: 0 | 1): void {
+    const section = document.createElement('div');
+    section.className = 'piano-settings-section';
+
+    const sectionLabel = document.createElement('div');
+    sectionLabel.className = 'piano-settings-section-label';
+    sectionLabel.textContent = mode === 'tap' ? 'Tap' : 'Swipe';
+    section.appendChild(sectionLabel);
+
+    const cur = getSound01Dynamics();
+
+    for (let i = 0; i < ANCHOR_PX.length; i++) {
+      const row = document.createElement('div');
+      row.className = 'piano-setting-row';
+
+      const lbl = document.createElement('label');
+      lbl.className = 'piano-setting-label';
+      lbl.textContent = anchorLabels[i];
+
+      const valSpan = document.createElement('span');
+      valSpan.className = 'piano-setting-value';
+      valSpan.textContent = String(cur[mode][i]);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = '0';
+      slider.max = '100';
+      slider.value = String(cur[mode][i]);
+      slider.className = 'piano-setting-slider';
+
+      const idx = i;
+      slider.addEventListener('input', () => {
+        valSpan.textContent = slider.value;
+        const d = getSound01Dynamics();
+        d[mode][idx] = Number(slider.value);
+        setSound01Dynamics(d);
+      });
+
+      allInputs[modeIndex].push(slider);
+      row.appendChild(lbl);
+      row.appendChild(slider);
+      row.appendChild(valSpan);
+      section.appendChild(row);
+    }
+
+    body.appendChild(section);
+  }
+
+  buildSection('tap',   0);
+  buildSection('swipe', 1);
+
+  const footer = document.createElement('div');
+  footer.className = 'piano-settings-footer';
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'piano-settings-reset';
+  resetBtn.textContent = 'Reset defaults';
+  resetBtn.addEventListener('click', () => {
+    setSound01Dynamics({ tap: [...SOUND01_DEFAULT_DYNAMICS.tap], swipe: [...SOUND01_DEFAULT_DYNAMICS.swipe] });
+    for (let m = 0; m < 2; m++) {
+      const mode = m === 0 ? 'tap' : 'swipe' as const;
+      for (let i = 0; i < ANCHOR_PX.length; i++) {
+        const inp = allInputs[m][i];
+        inp.value = String(SOUND01_DEFAULT_DYNAMICS[mode][i]);
+        inp.dispatchEvent(new Event('input'));
+      }
+    }
+  });
+  footer.appendChild(resetBtn);
+
+  sheet.appendChild(header);
+  sheet.appendChild(body);
+  sheet.appendChild(footer);
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('pointerdown', e => {
+    if (e.target === overlay) overlay.remove();
+  });
+}
 
 // ── Page / state precomputation ───────────────────────────────────────────────
 

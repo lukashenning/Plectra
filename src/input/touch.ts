@@ -1,6 +1,7 @@
 import type { HitTarget } from '../notation/renderer';
 import { noteOn, ensureAudioReady, type NoteHandle } from '../audio/synth';
 import { TREBLE_TOP, BASS_TOP, STAFF_HEIGHT } from '../notation/layout';
+import { computeGain } from '../audio/sound01Dynamics';
 
 // Current bar's staff tops — updated in attachTouchHandlers.
 let currentStaffTops: number[] = [TREBLE_TOP, BASS_TOP];
@@ -61,11 +62,6 @@ function trackAndGetVelocity(pointerId: number, cx: number, cy: number): number 
   return Math.sqrt(dx * dx + dy * dy) / dt;
 }
 
-function touchAreaGain(touchHeightCSS: number): number {
-  const norm = Math.min(1, touchHeightCSS / 40);
-  // Concave curve (exponent < 1): steep ramp for small touches, flattens toward large.
-  return 0.005 + Math.pow(norm, 0.25) * 0.99;
-}
 
 // ── Wiggle / vibrato tracker ──────────────────────────────────────────────────
 
@@ -132,6 +128,8 @@ class WiggleTracker {
 
 const pointers    = new Map<number, PointerState>();
 const transitions = new Map<number, TransitionEntry>();
+// Non-tied notes from the last bar advance ring until the next note activates.
+const pendingRingOut = new Set<NoteHandle>();
 
 let nextBarCooldownUntil = 0;
 
@@ -196,6 +194,7 @@ export function captureForTransition(currentTargets: HitTarget[] = []): number[]
           newStaffs[s].carriedHandlePitches.set(noteId, t.midiPitch);
         } else {
           staffHandles[s].set(noteId, handle);
+          pendingRingOut.add(handle); // ring until next note activates
         }
       }
     }
@@ -388,6 +387,22 @@ function findBestBeat(
 
 // ── Audio / color ─────────────────────────────────────────────────────────────
 
+// When a new beat activates on a staff, stop any cross-bar carried handles that
+// live in the transition state for that staff so tied-to notes damp correctly.
+function stopTransitionCarries(svg: SVGSVGElement, staff: number) {
+  for (const tr of transitions.values()) {
+    const ns = tr.newStaffs[staff];
+    if (!ns) continue;
+    for (const [noteId, handle] of [...ns.activeNotes]) {
+      if (!ns.carriedHandlePitches.has(noteId)) continue;
+      handle.stop();
+      setColor(svg, noteId, COLOR_DEFAULT);
+      ns.activeNotes.delete(noteId);
+      ns.carriedHandlePitches.delete(noteId);
+    }
+  }
+}
+
 function setColor(svg: SVGSVGElement, noteId: string, color: string) {
   svg.querySelector(`[data-note-id="${CSS.escape(noteId)}"]`)
     ?.querySelectorAll('path').forEach(p => p.setAttribute('fill', color));
@@ -395,11 +410,12 @@ function setColor(svg: SVGSVGElement, noteId: string, color: string) {
 
 function startNote(svg: SVGSVGElement, t: HitTarget, bag: Map<string, NoteHandle>, vel = 0, touchH = 0) {
   if (bag.has(t.noteId)) return;
+  pendingRingOut.forEach(h => h.stop());
+  pendingRingOut.clear();
   navigator.vibrate?.(10);
-  const base = touchAreaGain(touchH);
-  // Direct tap (vel=0): small boost so fingertip taps aren't too quiet.
-  const gain = Math.min(0.95, vel === 0 ? base * 1.35 : base);
-  bag.set(t.noteId, noteOn(t.midiPitch, gain));
+  const isTap = vel === 0;
+  const gain = computeGain(touchH, isTap);
+  bag.set(t.noteId, noteOn(t.midiPitch, gain, false, touchH, isTap));
   setColor(svg, t.noteId, COLOR_ACTIVE);
 }
 
@@ -416,8 +432,9 @@ function stopBag(svg: SVGSVGElement, bag: Map<string, NoteHandle>) {
 
 
 // Whitespace between the tap-advance area and the staff area (SVG user units).
-const TAP_ADVANCE_MARGIN_TOP    = 60; // above the staff area
-const TAP_ADVANCE_MARGIN_BOTTOM = 40; // below the staff area
+// Both margins are equal so dead zones above and below the staff are symmetric.
+const TAP_ADVANCE_MARGIN_TOP    = 60;
+const TAP_ADVANCE_MARGIN_BOTTOM = TAP_ADVANCE_MARGIN_TOP;
 
 /**
  * Tap-advance areas occupy the full gap above staff 1 and below staff N,
@@ -455,8 +472,7 @@ function getBottomTapAdvanceAreaSingleStaff(svg: SVGSVGElement): [number, number
   const sc = svgScale(svg);
   const vb = svg.viewBox.baseVal;
   const staffTop = currentStaffTops[0];
-  const GAP_BOTTOM = 100;
-  const areaTop    = staffTop + STAFF_HEIGHT + GAP_BOTTOM;
+  const areaTop    = staffTop + STAFF_HEIGHT + TAP_ADVANCE_MARGIN_BOTTOM;
   const areaBottom = vb.height + sc.oY * sc.sy;
   if (areaBottom <= areaTop) return null;
   return [areaTop, areaBottom];
@@ -506,6 +522,7 @@ function activateBeatDirect(
   touchH: number,
 ) {
   stopBag(svg, ss.activeNotes);
+  stopTransitionCarries(svg, staff);
   ss.activeBeat      = beatPrefix;
   ss.activeTouchH    = touchH;
   ss.activeNoteCount = 0;
@@ -520,7 +537,7 @@ function activateBeatDirect(
   const n = ss.activeNotes.size;
   if (n > 0) {
     ss.activeNoteCount = n;
-    const base  = Math.min(0.95, touchAreaGain(touchH));
+    const base  = computeGain(touchH, true); // activateBeatDirect is always a tap
     const scale = n === 1 ? 1.0 : Math.max(0.55, 1 / Math.sqrt(n));
     for (const h of ss.activeNotes.values()) h.setGain(Math.min(0.95, base * scale));
   }
@@ -636,6 +653,7 @@ function updateStaff(
   const { beatPrefix, closestNote } = result;
 
   if (ss.activeBeat !== beatPrefix) {
+    stopTransitionCarries(svg, staff);
     // Keep notes that are tied forward from the current beat, or handles carried across a barline.
     const tiedForward = tiedPitchesFromBeat(targets, ss.activeBeat);
     for (const [noteId, handle] of [...ss.activeNotes]) {
@@ -668,7 +686,7 @@ function updateStaff(
     if (n > 0 && n !== ss.activeNoteCount) {
       ss.activeNoteCount = n;
       const effectiveTouchH = ss.activeTouchH > 0 ? ss.activeTouchH : touchH;
-      const baseGain   = Math.min(0.95, touchAreaGain(effectiveTouchH));
+      const baseGain   = computeGain(effectiveTouchH, swipeVel === 0);
       const chordScale = n === 1 ? 1.0 : Math.max(0.55, 1 / Math.sqrt(n));
       const chordGain  = Math.min(0.95, baseGain * chordScale);
       for (const [id, h] of ss.activeNotes) {
@@ -694,7 +712,7 @@ function updateStaff(
   if (n > 0 && n !== ss.activeNoteCount) {
     ss.activeNoteCount = n;
     const effectiveTouchH = ss.activeTouchH > 0 ? ss.activeTouchH : touchH;
-    const baseGain   = Math.min(0.95, touchAreaGain(effectiveTouchH));
+    const baseGain   = computeGain(effectiveTouchH, swipeVel === 0);
     const chordScale = n === 1 ? 1.0 : Math.max(0.55, 1 / Math.sqrt(n));
     const chordGain  = Math.min(0.95, baseGain * chordScale);
     for (const [id, h] of ss.activeNotes) {
@@ -753,9 +771,11 @@ function endTransitionGlobal(pointerId: number, ringOut: boolean) {
   pointerMoveState.delete(pointerId);
   if (!transitions.has(pointerId)) return;
   const tr = transitions.get(pointerId)!;
-  if (!ringOut) {
-    for (const s of staffNums()) {
-      tr.staffHandles[s]?.forEach(h => h.stop());
+  for (const s of staffNums()) {
+    // staffHandles are in pendingRingOut; stop + remove them now that the
+    // finger has lifted (no need to wait for the next note to activate).
+    tr.staffHandles[s]?.forEach(h => { h.stop(); pendingRingOut.delete(h); });
+    if (!ringOut) {
       tr.newStaffs[s]?.activeNotes.forEach(h => h.stop());
     }
   }
@@ -805,7 +825,13 @@ function upsertIndicator(
     const dot = document.createElementNS(NS, 'circle');
     dot.setAttribute('r', '3');
     dot.setAttribute('fill', 'rgba(224,48,48,0.7)');
-    g.appendChild(ring); g.appendChild(dot);
+    const label = document.createElementNS(NS, 'text');
+    label.setAttribute('fill', 'rgba(220,30,30,0.9)');
+    label.setAttribute('font-size', '18');
+    label.setAttribute('font-family', 'system-ui, sans-serif');
+    label.setAttribute('font-weight', '600');
+    label.setAttribute('pointer-events', 'none');
+    g.appendChild(ring); g.appendChild(dot); g.appendChild(label);
     getOverlay(svg).appendChild(g);
     overlayEls.set(id, g);
   }
@@ -815,6 +841,10 @@ function upsertIndicator(
   g.querySelector('ellipse')!.setAttribute('ry', String(rY));
   g.querySelector('circle')!.setAttribute('cx', String(x));
   g.querySelector('circle')!.setAttribute('cy', String(y));
+  const lbl = g.querySelector('text')!;
+  lbl.textContent = String(Math.round(thCSS));
+  lbl.setAttribute('x', String(x + rX + 4));
+  lbl.setAttribute('y', String(y + 6));
 }
 
 function removeIndicator(id: number) {
@@ -858,8 +888,7 @@ export function attachTouchHandlers(
     const n = currentStaffTops.length;
     if (n === 0) return false;
     const lastTop = currentStaffTops[n - 1];
-    const gap = n === 1 ? 100 : TAP_ADVANCE_MARGIN_BOTTOM;
-    const tapStart = lastTop + STAFF_HEIGHT + gap;
+    const tapStart = lastTop + STAFF_HEIGHT + TAP_ADVANCE_MARGIN_BOTTOM;
     const pfx = `${n}-`;
     const lowestHit = targets.reduce(
       (m, t) => t.noteId.startsWith(pfx) ? Math.max(m, t.y + t.h) : m,
@@ -998,6 +1027,8 @@ export function attachTouchHandlers(
 // ── Public helpers ────────────────────────────────────────────────────────────
 
 export function stopAllNotes(svg?: SVGSVGElement) {
+  pendingRingOut.forEach(h => h.stop());
+  pendingRingOut.clear();
   for (const [id, st] of pointers.entries()) {
     for (const ss of Object.values(st.staffs) as StaffState[]) {
       if (svg) stopBag(svg, ss.activeNotes);
@@ -1016,4 +1047,49 @@ export function stopAllNotes(svg?: SVGSVGElement) {
     }
   }
   transitions.clear();
+}
+
+// ── Debug zone overlay ────────────────────────────────────────────────────────
+
+export function drawDebugZones(svg: SVGSVGElement, _targets: HitTarget[]): void {
+  svg.querySelector('#debug-zones')?.remove();
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.id = 'debug-zones';
+  g.style.pointerEvents = 'none';
+
+  const sc  = svgScale(svg);
+  const vb  = svg.viewBox.baseVal;
+  const n   = currentStaffTops.length;
+  if (n === 0) { svg.appendChild(g); return; }
+
+  const svgW           = vb.width;
+  const viewportTop    = -sc.oY * sc.sy;
+  const viewportBottom =  vb.height + sc.oY * sc.sy;
+  const topStaffY      = currentStaffTops[0];
+  const lastStaffTop   = currentStaffTops[n - 1];
+  const staffBottom    = lastStaffTop + STAFF_HEIGHT;
+
+  function rect(y1: number, y2: number, color: string) {
+    if (y2 <= y1) return;
+    const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    r.setAttribute('x', '0');
+    r.setAttribute('y', String(y1));
+    r.setAttribute('width', String(svgW));
+    r.setAttribute('height', String(y2 - y1));
+    r.setAttribute('fill', color);
+    r.setAttribute('opacity', '0.25');
+    g.appendChild(r);
+  }
+
+  // Top: [viewport top → tap-advance (red) → dead zone (blue) → staff 1]
+  const topDeadTop = topStaffY - TAP_ADVANCE_MARGIN_TOP;
+  rect(viewportTop, topDeadTop, 'red');
+  rect(topDeadTop, topStaffY, 'blue');
+
+  // Bottom: [last staff → dead zone (blue) → tap-advance (red) → viewport bottom]
+  const bottomDeadBottom = staffBottom + TAP_ADVANCE_MARGIN_BOTTOM;
+  rect(staffBottom, bottomDeadBottom, 'blue');
+  rect(bottomDeadBottom, viewportBottom, 'red');
+
+  svg.appendChild(g);
 }
