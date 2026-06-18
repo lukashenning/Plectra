@@ -11,8 +11,8 @@ export interface Sound01Dynamics {
 }
 
 export const DEFAULT_DYNAMICS: Sound01Dynamics = {
-  tap:   [44, 62, 69, 81, 87, 100],
-  swipe: [37, 51, 66, 79, 92, 100],
+  tap:   [60, 70, 80, 90, 95, 100],
+  swipe: [50, 60, 70, 80, 90, 100],
 };
 
 let _dynamics: Sound01Dynamics = {

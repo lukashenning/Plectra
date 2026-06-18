@@ -3,7 +3,7 @@ import rawMusicIndex from './music-index.json';
 import { parseMusicXML } from './musicxml/parser';
 import { layoutBar, computeBarBeats, computePrefixWidth, computeSplitPoint, HIT_W_MIN, RIGHT_MARGIN, type SlurAnchor } from './notation/layout';
 import { renderBar, type HitTarget } from './notation/renderer';
-import { attachTouchHandlers, stopAllNotes, captureForTransition } from './input/touch';
+import { attachTouchHandlers, stopAllNotes, captureForTransition, drawDebugZones } from './input/touch';
 import { installIOSFixes } from './input/ios';
 import { ensureAudioReady, setInstrument, startLoadingPianoforte, pianoforteReady, type InstrumentId } from './audio/synth';
 import { getPianoforteDynamics, setPianoforteDynamics, DEFAULT_DYNAMICS, ANCHOR_PX } from './audio/pianoforteDynamics';
@@ -438,6 +438,7 @@ function renderCurrentBar() {
   const newSvg = scoreContainer.querySelector('svg') as SVGSVGElement;
   if (newSvg) {
     attachTouchHandlers(newSvg, () => hitTargets, advanceBarQuietly, layout);
+    drawDebugZones(newSvg, hitTargets);
     // Set next-bar-zone width to match RIGHT_MARGIN in screen pixels.
     // Deferred one frame so the SVG has a laid-out bounding rect.
     requestAnimationFrame(() => {

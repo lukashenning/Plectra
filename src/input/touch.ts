@@ -287,21 +287,27 @@ function getBeatPrefix(noteId: string): string {
   return noteId.slice(0, i2);
 }
 
-function staffYRange(targets: HitTarget[], staff: number): [number, number] | null {
-  const p = staff + '-';
-  let lo = Infinity, hi = -Infinity;
+// Returns the y-range of the 5 staff lines (top line to bottom line) plus padding.
+// This is the primary gate for whether a touch is "on a staff" — leger-line notes
+// outside this range are still reachable, but only when the touch actually overlaps
+// their bounding box (checked separately in updateStaff / updateTransition).
+// Gate range: top staff line (- small top pad) to bottom staff line (no bottom pad).
+// Touches below the bottom line are only accepted when they overlap a note's own
+// hit box at the found beat — handled by touchInBeatYRange.
+function staffLineYRange(staff: number): [number, number] | null {
+  const staffTop = currentStaffTops[staff - 1];
+  if (staffTop === undefined) return null;
+  return [staffTop - STAFF_Y_PAD, staffTop + STAFF_HEIGHT];
+}
+
+// Returns true if touchY falls within the note hit box (HIT_H = 30, centered on note head)
+// at beatPrefix. No extra padding — the 30px box is the zone.
+function touchInBeatYRange(targets: HitTarget[], beatPrefix: string, touchY: number): boolean {
   for (const t of targets) {
-    if (!t.noteId.startsWith(p)) continue;
-    if (t.y       < lo) lo = t.y;
-    if (t.y + t.h > hi) hi = t.y + t.h;
+    if (getBeatPrefix(t.noteId) !== beatPrefix) continue;
+    if (touchY >= t.y && touchY <= t.y + t.h) return true;
   }
-  if (lo === Infinity) return null;
-  // Single-staff: no bottom padding — stop exactly at the lowest hit-target edge
-  // so the gap zone below stays dead (no note activation, no tap-advance fallthrough).
-  if (currentStaffTops.length === 1 && staff === 1) {
-    return [lo - STAFF_Y_PAD, hi];
-  }
-  return [lo - STAFF_Y_PAD, hi + STAFF_Y_PAD];
+  return false;
 }
 
 interface BeatResult { beatPrefix: string; closestNote: HitTarget; }
@@ -436,6 +442,14 @@ function stopBag(svg: SVGSVGElement, bag: Map<string, NoteHandle>) {
 const TAP_ADVANCE_MARGIN_TOP    = 60;
 const TAP_ADVANCE_MARGIN_BOTTOM = TAP_ADVANCE_MARGIN_TOP;
 
+// For scores with ≤3 staves the bottom dead zone is 25% taller so accidental
+// taps below the last staff are less likely to trigger tap-advance.
+function bottomDeadZoneHeight(): number {
+  return currentStaffTops.length <= 3
+    ? Math.round(TAP_ADVANCE_MARGIN_BOTTOM * 1.25)
+    : TAP_ADVANCE_MARGIN_BOTTOM;
+}
+
 /**
  * Tap-advance areas occupy the full gap above staff 1 and below staff N,
  * leaving a margin adjacent to the staff.
@@ -456,7 +470,7 @@ function getTapAdvanceArea(svg: SVGSVGElement, staff: number): [number, number] 
   const lastStaffIdx = currentStaffTops.length - 1;
   if (staff === lastStaffIdx + 1) {
     const vb = svg.viewBox.baseVal;
-    const areaTop    = staffTop + STAFF_HEIGHT + TAP_ADVANCE_MARGIN_BOTTOM;
+    const areaTop    = staffTop + STAFF_HEIGHT + bottomDeadZoneHeight();
     const areaBottom = vb.height + sc.oY * sc.sy;
     if (areaBottom <= areaTop) return null;
     return [areaTop, areaBottom];
@@ -472,7 +486,7 @@ function getBottomTapAdvanceAreaSingleStaff(svg: SVGSVGElement): [number, number
   const sc = svgScale(svg);
   const vb = svg.viewBox.baseVal;
   const staffTop = currentStaffTops[0];
-  const areaTop    = staffTop + STAFF_HEIGHT + TAP_ADVANCE_MARGIN_BOTTOM;
+  const areaTop    = staffTop + STAFF_HEIGHT + bottomDeadZoneHeight();
   const areaBottom = vb.height + sc.oY * sc.sy;
   if (areaBottom <= areaTop) return null;
   return [areaTop, areaBottom];
@@ -644,8 +658,15 @@ function updateStaff(
   trackRecentBeat = true,
   allowTieStop = false,
 ) {
-  const range = staffYRange(targets, staff);
-  if (!range || touchY < range[0] || touchY > range[1]) return;
+  const range = staffLineYRange(staff);
+  if (!range) return;
+  const inStaffLines = touchY >= range[0] && touchY <= range[1];
+  if (!inStaffLines) {
+    // Outside the 5-line bounds — only proceed if the touch overlaps a note's
+    // actual bounding box at the nearest beat (leger-line notes are still reachable).
+    const probe = findBestBeat(targets, staff, touchX, touchY, halfH, prevTouchX);
+    if (!probe || !touchInBeatYRange(targets, probe.beatPrefix, touchY)) return;
+  }
 
   const result = findBestBeat(targets, staff, touchX, touchY, halfH, prevTouchX);
   if (!result) return;
@@ -736,8 +757,13 @@ function updateTransition(
   tr.lastX = x; tr.lastY = y;
 
   for (const s of staffNums()) {
-    const range = staffYRange(targets, s);
-    if (!range || y < range[0] || y > range[1]) continue;
+    const range = staffLineYRange(s);
+    if (!range) continue;
+    const inStaffLines = y >= range[0] && y <= range[1];
+    if (!inStaffLines) {
+      const probe = findBestBeat(targets, s, x, y, halfH);
+      if (!probe || !touchInBeatYRange(targets, probe.beatPrefix, y)) continue;
+    }
 
     const result = findBestBeat(targets, s, x, y, halfH);
     if (!result) continue;
@@ -888,7 +914,7 @@ export function attachTouchHandlers(
     const n = currentStaffTops.length;
     if (n === 0) return false;
     const lastTop = currentStaffTops[n - 1];
-    const tapStart = lastTop + STAFF_HEIGHT + TAP_ADVANCE_MARGIN_BOTTOM;
+    const tapStart = lastTop + STAFF_HEIGHT + bottomDeadZoneHeight();
     const pfx = `${n}-`;
     const lowestHit = targets.reduce(
       (m, t) => t.noteId.startsWith(pfx) ? Math.max(m, t.y + t.h) : m,
@@ -1087,7 +1113,7 @@ export function drawDebugZones(svg: SVGSVGElement, _targets: HitTarget[]): void 
   rect(topDeadTop, topStaffY, 'blue');
 
   // Bottom: [last staff → dead zone (blue) → tap-advance (red) → viewport bottom]
-  const bottomDeadBottom = staffBottom + TAP_ADVANCE_MARGIN_BOTTOM;
+  const bottomDeadBottom = staffBottom + bottomDeadZoneHeight();
   rect(staffBottom, bottomDeadBottom, 'blue');
   rect(bottomDeadBottom, viewportBottom, 'red');
 

@@ -7,6 +7,7 @@ import { computeMidiVelocity } from './pianoforteDynamics';
 let _piano: SplendidGrandPiano | null = null;
 let _ready = false;
 let _loadPromise: Promise<void> | null = null;
+let _voiceCounter = 0;
 
 // Chain: smplr → high-shelf filter → limiter → output gain → destination.
 // The limiter clamps transient peaks before they can overdrive phone speakers.
@@ -75,7 +76,7 @@ export function pianoforteNoteOn(
 ): PianoforteHandle {
   const piano = _piano!;
   const midiVelocity = computeMidiVelocity(touchH, isTap);
-  const stopFn = piano.start({ note: midiPitch, velocity: midiVelocity });
+  const stopFn = piano.start({ note: midiPitch, velocity: midiVelocity, stopId: `${midiPitch}-${++_voiceCounter}` });
   let stopped = false;
 
   return {
