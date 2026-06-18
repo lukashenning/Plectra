@@ -18,13 +18,18 @@ export const HIT_W_MIN = 14;        // minimum hit-box width per beat position
 export const STEP_PX = SPACE / 2;
 
 // Vertical layout constants
-const TOP_MARGIN = 90;       // gap above first staff (holds tap-advance area a1)
-const INTER_STAFF_GAP = 60;  // gap between consecutive staves
-const BOTTOM_MARGIN = 60;    // gap below last staff (holds tap-advance area aN)
+export const TOP_MARGIN = 90; // kept for legacy reference only
 
-// Kept for backward-compat imports (touch.ts initialises its defaults from these)
-export const TREBLE_TOP = TOP_MARGIN;
-export const BASS_TOP   = TOP_MARGIN + STAFF_HEIGHT + INTER_STAFF_GAP + 60; // 250 (2-staff layout has +60 gap)
+// Zone layout constants — shared with touch.ts
+// Staff area = STAFF_AREA_PAD + STAFF_HEIGHT + STAFF_AREA_PAD = 2.5 × STAFF_HEIGHT = 100px
+export const STAFF_AREA_PAD = Math.round(STAFF_HEIGHT * 0.75); // 30px above/below staff lines within its area
+export const DEAD_ZONE_H    = 40;                              // height of each dead zone (blue, no tap-advance)
+// Full staff area height (used to position consecutive staves)
+export const STAFF_AREA_H   = STAFF_AREA_PAD + STAFF_HEIGHT + STAFF_AREA_PAD; // 100
+
+// Default staff tops (used as initial value before first render)
+export const TREBLE_TOP = DEAD_ZONE_H + STAFF_AREA_PAD;       // 70
+export const BASS_TOP   = DEAD_ZONE_H + STAFF_AREA_H + STAFF_AREA_PAD; // 170
 
 // ── Clef helpers ──────────────────────────────────────────────────────────────
 
@@ -225,23 +230,58 @@ export function layoutBar(
   pageStartBeat = 0,
   pageEndBeat?: number,
   showTimeSig = true,
+  staffOffset = 0,
+  compact = false,
+  containerHeight = 0,
 ): BarLayout {
 
-  // 2-staff layout gets extra separation so each tap-advance area has more room.
-  const interGap = staffCount === 2 ? INTER_STAFF_GAP + 60 : INTER_STAFF_GAP;
+  // ── Vertical layout ──────────────────────────────────────────────────────────
+  //
+  // Solo layout (top → bottom):
+  //   tap-advance (fills space)  ← red zone, flexible
+  //   dead zone 40px             ← blue zone, no tap-advance
+  //   staff area 120px each      ← 40px pad + 40px lines + 40px pad
+  //   dead zone 40px             ← blue zone, no tap-advance
+  //   tap-advance (fills space)  ← red zone, flexible
+  //
+  // 2-player / compact layout (divider → outer edge):
+  //   staff area 100px each
+  //   dead zone 40px             ← blue zone
+  //   tap-advance (fills space)  ← red zone, flexible
+  //
+  // svgHeight = containerHeight so the viewBox matches the container exactly
+  // (no letterboxing, no scale factors, no overflow tricks needed).
 
-  // Compute vertical positions for each staff
   const staffTops: number[] = [];
   const staffMiddleCYs: number[] = [];
-  for (let i = 0; i < staffCount; i++) {
-    const top = TOP_MARGIN + i * (STAFF_HEIGHT + interGap);
-    staffTops.push(top);
-    const clef = activeClefs[i + 1] ?? (i === 0 ? { sign: 'G' as ClefSign, line: 2 } : { sign: 'F' as ClefSign, line: 4 });
-    staffMiddleCYs.push(middleCYForClef(top, clef.sign, clef.line, clef.octaveChange ?? 0));
+
+  if (compact) {
+    // Fixed positions: staves stacked from top, dead zone + tap-advance below.
+    // staffTop[i] = i * STAFF_AREA_H + STAFF_AREA_PAD
+    for (let i = 0; i < staffCount; i++) {
+      const top = i * STAFF_AREA_H + STAFF_AREA_PAD;
+      staffTops.push(top);
+      const clef = activeClefs[i + 1 + staffOffset] ?? (i === 0 ? { sign: 'G' as ClefSign, line: 2 } : { sign: 'F' as ClefSign, line: 4 });
+      staffMiddleCYs.push(middleCYForClef(top, clef.sign, clef.line, clef.octaveChange ?? 0));
+    }
+  } else {
+    // Dynamic: split remaining space equally between top and bottom tap-advance areas.
+    const fixedH = DEAD_ZONE_H + staffCount * STAFF_AREA_H + DEAD_ZONE_H; // 80 + 120N
+    const h = containerHeight > 0 ? containerHeight : (staffCount === 1 ? 420 : 520);
+    const tapH = Math.max(0, Math.floor((h - fixedH) / 2));
+    for (let i = 0; i < staffCount; i++) {
+      const top = tapH + DEAD_ZONE_H + i * STAFF_AREA_H + STAFF_AREA_PAD;
+      staffTops.push(top);
+      const clef = activeClefs[i + 1 + staffOffset] ?? (i === 0 ? { sign: 'G' as ClefSign, line: 2 } : { sign: 'F' as ClefSign, line: 4 });
+      staffMiddleCYs.push(middleCYForClef(top, clef.sign, clef.line, clef.octaveChange ?? 0));
+    }
   }
-  // Single-staff layout needs extra bottom room: 60 gap + 60 tap area (mirroring top).
-  const effectiveBottomMargin = staffCount === 1 ? 160 : BOTTOM_MARGIN;
-  const svgHeight = TOP_MARGIN + staffCount * STAFF_HEIGHT + (staffCount - 1) * interGap + effectiveBottomMargin;
+
+  const svgHeight = containerHeight > 0 ? containerHeight : (() => {
+    // Fallback when no container height is provided (e.g. buildSlurStates pre-pass).
+    const fixedH = DEAD_ZONE_H + staffCount * STAFF_AREA_H + DEAD_ZONE_H;
+    return compact ? fixedH + staffCount * STAFF_AREA_H : fixedH + 200;
+  })();
 
   function noteY(diatonicFromMiddleC: number, staff: number): number {
     return staffMiddleCYs[staff - 1] - diatonicFromMiddleC * STEP_PX;
@@ -268,6 +308,7 @@ export function layoutBar(
     if (ev.kind === 'dynamic') continue;
     const isChord = ev.kind === 'note' && ev.chord;
     if (isChord) continue;
+    if (ev.staff <= staffOffset || ev.staff > staffOffset + staffCount) continue;
     if (beatByStaff[ev.staff] === undefined) beatByStaff[ev.staff] = 0;
     const b = beatByStaff[ev.staff];
     if (b >= pageStartBeat && b < pageEnd) uniqueBeats.add(b);
@@ -291,7 +332,7 @@ export function layoutBar(
     const beatByVoice = new Map<string, number>();
     const result: EventWithBeat[] = [];
     for (const ev of events) {
-      if (ev.staff !== staff) continue;
+      if (ev.staff !== staff + staffOffset) continue;
       const voice = ev.voice;
       const beat = beatByVoice.get(voice) ?? 0;
       if (ev.kind === 'dynamic') {
@@ -321,7 +362,7 @@ export function layoutBar(
   }
 
   function renderStaffEvents(staff: number) {
-    const clef = activeClefs[staff] ?? (staff === 1
+    const clef = activeClefs[staff + staffOffset] ?? (staff === 1
       ? { sign: 'G' as ClefSign, line: 2 }
       : { sign: 'F' as ClefSign, line: 4 });
     const octaveChange = clef.octaveChange ?? 0;
@@ -526,6 +567,13 @@ export function layoutBar(
     openSlursOut.set(key, { y: sym.y, above: !sym.stemUp });
   }
 
+  // Remap activeClefs to local staff indices (1..staffCount)
+  const localActiveClefs: Record<number, Clef> = {};
+  for (let s = 1; s <= staffCount; s++) {
+    const c = activeClefs[s + staffOffset];
+    if (c) localActiveClefs[s] = c;
+  }
+
   return {
     symbols,
     svgWidth,
@@ -534,7 +582,7 @@ export function layoutBar(
     staffCount,
     staffTops,
     staffMiddleCYs,
-    activeClefs,
+    activeClefs: localActiveClefs,
     openSlursOut,
   };
 }

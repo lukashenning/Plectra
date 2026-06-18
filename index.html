@@ -16,12 +16,18 @@
     <!-- Top bar -->
     <div id="top-bar">
       <button id="find-btn" aria-label="Find music">Find music</button>
-      <select id="instrument-select" aria-label="Instrument">
-        <option value="pianoforte">Pianoforte</option>
-        <option value="sound01">Sound 01</option>
-        <option value="pianoforte-settings" class="settings-option">Pianoforte settings…</option>
-        <option value="sound01-settings" class="settings-option">Sound 01 settings…</option>
-      </select>
+      <div id="select-group">
+        <select id="instrument-select" aria-label="Instrument">
+          <option value="pianoforte">Pianoforte</option>
+          <option value="sound01">Sound 01</option>
+          <option value="pianoforte-settings" class="settings-option">Pianoforte settings…</option>
+          <option value="sound01-settings" class="settings-option">Sound 01 settings…</option>
+        </select>
+        <select id="view-select" aria-label="View">
+          <option value="solo">Solo</option>
+          <option value="2player">2 Player</option>
+        </select>
+      </div>
       <input id="bar-number-btn" type="number" inputmode="numeric" readonly aria-label="Jump to bar" class="hidden" />
     </div>
 
@@ -51,6 +57,15 @@
 
     <!-- Score area -->
     <div id="score-container"></div>
+
+    <!-- 2-player split screen -->
+    <div id="split-screen">
+      <div id="score-container-top" class="player-half player-half-top"></div>
+      <div id="split-screen-header"></div>
+      <div id="player-bottom-wrapper" class="player-half player-half-bottom">
+        <div id="score-container-bottom"></div>
+      </div>
+    </div>
 
     <!-- Right-edge next-bar zone (10 px wide, full viewport height) -->
     <div id="next-bar-zone"></div>

@@ -3,7 +3,7 @@ import rawMusicIndex from './music-index.json';
 import { parseMusicXML } from './musicxml/parser';
 import { layoutBar, computeBarBeats, computePrefixWidth, computeSplitPoint, HIT_W_MIN, RIGHT_MARGIN, type SlurAnchor } from './notation/layout';
 import { renderBar, type HitTarget } from './notation/renderer';
-import { attachTouchHandlers, stopAllNotes, captureForTransition, drawDebugZones } from './input/touch';
+import { createTouchContext } from './input/touch';
 import { installIOSFixes } from './input/ios';
 import { ensureAudioReady, setInstrument, startLoadingPianoforte, pianoforteReady, type InstrumentId } from './audio/synth';
 import { getPianoforteDynamics, setPianoforteDynamics, DEFAULT_DYNAMICS, ANCHOR_PX } from './audio/pianoforteDynamics';
@@ -45,12 +45,24 @@ let pages: Page[] = [];
 let barStates: BarState[] = [];
 let currentPageIndex = 0;
 let hitTargets: HitTarget[] = [];
+let hitTargetsTop: HitTarget[] = [];
 // Slur state per page index: incoming slurs at the start of each page
 let slurStateByPage: Map<string, SlurAnchor>[] = [];
+let slurStateByPageTop: Map<string, SlurAnchor>[] = [];
+
+let viewMode: 'solo' | '2player' = 'solo';
+
+// Touch contexts
+let sharedCooldown = { until: 0 };
+let touchCtx  = createTouchContext();
+let bottomCtx = createTouchContext({ sharedCooldown, compact: true });
+let topCtx    = createTouchContext({ flipped: true, sharedCooldown, compact: true });
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
-const scoreContainer = document.getElementById('score-container')!;
+const scoreContainer    = document.getElementById('score-container')!;
+const scoreContainerTop = document.getElementById('score-container-top')!;
+const scoreContainerBot = document.getElementById('score-container-bottom')!;
 const scoreInfo      = document.getElementById('score-info')!;
 const scoreTitleEl   = document.getElementById('score-title')!;
 const scoreComposer  = document.getElementById('score-composer')!;
@@ -61,6 +73,28 @@ const prevBtn        = document.getElementById('prev-btn')!;
 const nextBtn        = document.getElementById('next-btn')!;
 const nextBarZone        = document.getElementById('next-bar-zone')!;
 const instrumentSelectEl = document.getElementById('instrument-select') as HTMLSelectElement;
+const viewSelectEl       = document.getElementById('view-select') as HTMLSelectElement;
+const topBarEl              = document.getElementById('top-bar')!;
+const navBarEl              = document.getElementById('nav-bar')!;
+const splitScreenHeader     = document.getElementById('split-screen-header')!;
+const splitScreenEl         = document.getElementById('split-screen')!;
+// Original parent elements for solo-mode restore
+const topBarSoloParent  = topBarEl.parentElement!;
+const topBarSoloNextSib = topBarEl.nextElementSibling;
+const navBarSoloParent  = navBarEl.parentElement!;
+
+function applyViewLayout(mode: 'solo' | '2player') {
+  if (mode === '2player') {
+    // Header between the two halves; nav at the very bottom of split-screen.
+    // Both player halves are flex:1 siblings of the header → equal height.
+    splitScreenHeader.appendChild(topBarEl);
+    splitScreenEl.appendChild(navBarEl);
+  } else {
+    // Restore to body-level positions
+    topBarSoloParent.insertBefore(topBarEl, topBarSoloNextSib);
+    navBarSoloParent.appendChild(navBarEl);
+  }
+}
 
 barNumberEl.classList.add('hidden');
 
@@ -339,7 +373,11 @@ function buildBarStates(s: Score): BarState[] {
   return states;
 }
 
-function buildSlurStates(s: Score, states: BarState[], pgs: Page[], containerWidth: number): Map<string, SlurAnchor>[] {
+function buildSlurStates(
+  s: Score, states: BarState[], pgs: Page[], containerWidth: number,
+  staffOffset = 0, localStaffCount?: number, compact = false, containerHeight = 0,
+): Map<string, SlurAnchor>[] {
+  const sc = localStaffCount ?? s.staffCount;
   const result: Map<string, SlurAnchor>[] = [];
   let incoming = new Map<string, SlurAnchor>();
   for (const page of pgs) {
@@ -349,16 +387,10 @@ function buildSlurStates(s: Score, states: BarState[], pgs: Page[], containerWid
     const showTimeSig = page.barIndex === 0 || bar.timeSig !== undefined;
     const layout = layoutBar(
       bar, state.timeSig, state.keySig, containerWidth,
-      true, s.staffCount, state.clefs,
-      page.startBeat, page.endBeat, showTimeSig,
+      true, sc, state.clefs,
+      page.startBeat, page.endBeat, showTimeSig, staffOffset, compact, containerHeight,
     );
-    if (page.isLastInBar) {
-      // Cross-bar: carry forward open slurs; within same bar carry nothing (handled inline)
-      incoming = new Map(layout.openSlursOut);
-    } else {
-      // Split page: open slurs continue to next page of same bar
-      incoming = new Map(layout.openSlursOut);
-    }
+    incoming = new Map(layout.openSlursOut);
   }
   return result;
 }
@@ -408,20 +440,82 @@ function renderCurrentBar() {
   const page  = pages[currentPageIndex];
   const bar   = score.bars[page.barIndex];
   const state = barStates[page.barIndex];
-  const containerWidth = scoreContainer.clientWidth;
-
   const showTimeSig = page.barIndex === 0 || bar.timeSig !== undefined;
+
+  if (viewMode === '2player') {
+    const totalStaffs = score.staffCount;
+    const bottomStaffCount = Math.ceil(totalStaffs / 2);
+    const topStaffCount    = totalStaffs - bottomStaffCount;
+
+    const botWidth  = scoreContainerBot.clientWidth  || window.innerWidth;
+    const topWidth  = scoreContainerTop.clientWidth  || window.innerWidth;
+    const botHeight = scoreContainerBot.clientHeight || 400;
+    const topHeight = scoreContainerTop.clientHeight || 400;
+
+    // Bottom half: staves 1..bottomStaffCount (staffOffset=0)
+    const botLayout = layoutBar(
+      bar, state.timeSig, state.keySig, botWidth,
+      true, bottomStaffCount, state.clefs,
+      page.startBeat, page.endBeat, showTimeSig, 0, true, botHeight,
+    );
+    const botIncoming = slurStateByPage[currentPageIndex] ?? new Map();
+    hitTargets = renderBar(
+      scoreContainerBot, botLayout, state.timeSig, state.keySig, bar.number, true,
+      !page.isLastInBar, !page.isFirstInBar, showTimeSig, botIncoming,
+    );
+
+    // Top half: staves (bottomStaffCount+1)..totalStaffs (staffOffset=bottomStaffCount)
+    if (topStaffCount > 0) {
+      const topLayout = layoutBar(
+        bar, state.timeSig, state.keySig, topWidth,
+        true, topStaffCount, state.clefs,
+        page.startBeat, page.endBeat, showTimeSig, bottomStaffCount, true, topHeight,
+      );
+      const topIncoming = slurStateByPageTop[currentPageIndex] ?? new Map();
+      hitTargetsTop = renderBar(
+        scoreContainerTop, topLayout, state.timeSig, state.keySig, bar.number, true,
+        !page.isLastInBar, !page.isFirstInBar, showTimeSig, topIncoming,
+      );
+      const topSvg = scoreContainerTop.querySelector('svg') as SVGSVGElement;
+      if (topSvg) {
+        topCtx.attachTouchHandlers(topSvg, () => hitTargetsTop, advanceBarQuietly, topLayout);
+        topCtx.drawDebugZones(topSvg, hitTargetsTop);
+      }
+    } else {
+      scoreContainerTop.innerHTML = '';
+      hitTargetsTop = [];
+    }
+
+    const botSvg = scoreContainerBot.querySelector('svg') as SVGSVGElement;
+    if (botSvg) {
+      bottomCtx.attachTouchHandlers(botSvg, () => hitTargets, advanceBarQuietly, botLayout);
+      bottomCtx.drawDebugZones(botSvg, hitTargets);
+    }
+
+    if (barNumberEl.readOnly) barNumberEl.value = String(bar.number).padStart(3, '0');
+    const onBar1 = page.barIndex === 0 && page.isFirstInBar;
+    scoreInfo.classList.toggle('hidden', !onBar1);
+    if (onBar1 && score) {
+      scoreTitleEl.textContent  = score.title;
+      scoreComposer.textContent = score.composer;
+      scoreComposer.classList.toggle('hidden', !score.composer);
+    }
+    return;
+  }
+
+  // Solo mode
+  const containerWidth  = scoreContainer.clientWidth;
+  const containerHeight = scoreContainer.clientHeight;
   const layout = layoutBar(
     bar, state.timeSig, state.keySig, containerWidth,
     true, score.staffCount, state.clefs,
-    page.startBeat, page.endBeat,
-    showTimeSig,
+    page.startBeat, page.endBeat, showTimeSig, 0, false, containerHeight,
   );
   const incoming = slurStateByPage[currentPageIndex] ?? new Map();
   hitTargets = renderBar(
     scoreContainer, layout, state.timeSig, state.keySig, bar.number, true,
-    !page.isLastInBar,   // hideBarline: no barline on non-final split pages
-    !page.isFirstInBar,  // hidePrefix: no clef/key/time on continuation pages
+    !page.isLastInBar,
+    !page.isFirstInBar,
     showTimeSig,
     incoming,
   );
@@ -437,10 +531,8 @@ function renderCurrentBar() {
 
   const newSvg = scoreContainer.querySelector('svg') as SVGSVGElement;
   if (newSvg) {
-    attachTouchHandlers(newSvg, () => hitTargets, advanceBarQuietly, layout);
-    drawDebugZones(newSvg, hitTargets);
-    // Set next-bar-zone width to match RIGHT_MARGIN in screen pixels.
-    // Deferred one frame so the SVG has a laid-out bounding rect.
+    touchCtx.attachTouchHandlers(newSvg, () => hitTargets, advanceBarQuietly, layout);
+    touchCtx.drawDebugZones(newSvg, hitTargets);
     requestAnimationFrame(() => {
       const svgRect = newSvg.getBoundingClientRect();
       const vb = newSvg.viewBox.baseVal;
@@ -456,36 +548,96 @@ function renderCurrentBar() {
 
 function goToPage(index: number) {
   if (!score) return;
-  const svg = scoreContainer.querySelector('svg') as SVGSVGElement | null;
-  stopAllNotes(svg ?? undefined);
+  if (viewMode === '2player') {
+    const botSvg = scoreContainerBot.querySelector('svg') as SVGSVGElement | null;
+    const topSvg = scoreContainerTop.querySelector('svg') as SVGSVGElement | null;
+    bottomCtx.stopAllNotes(botSvg ?? undefined);
+    topCtx.stopAllNotes(topSvg ?? undefined);
+  } else {
+    const svg = scoreContainer.querySelector('svg') as SVGSVGElement | null;
+    touchCtx.stopAllNotes(svg ?? undefined);
+  }
   currentPageIndex = Math.max(0, Math.min(index, pages.length - 1));
   renderCurrentBar();
 }
 
 function retreatBarQuietly() {
   if (!score || currentPageIndex <= 0) return;
-  const activeIds = captureForTransition(hitTargets);
-  currentPageIndex--;
-  renderCurrentBar();
-  const newSvg = scoreContainer.querySelector('svg') as SVGSVGElement | null;
-  if (newSvg) {
-    for (const id of activeIds) { try { newSvg.setPointerCapture(id); } catch { } }
+  if (viewMode === '2player') {
+    const botIds = bottomCtx.captureForTransition(hitTargets);
+    const topIds = topCtx.captureForTransition(hitTargetsTop);
+    currentPageIndex--;
+    renderCurrentBar();
+    const botSvg = scoreContainerBot.querySelector('svg') as SVGSVGElement | null;
+    const topSvg = scoreContainerTop.querySelector('svg') as SVGSVGElement | null;
+    if (botSvg) for (const id of botIds) { try { botSvg.setPointerCapture(id); } catch { } }
+    if (topSvg) for (const id of topIds) { try { topSvg.setPointerCapture(id); } catch { } }
+  } else {
+    const activeIds = touchCtx.captureForTransition(hitTargets);
+    currentPageIndex--;
+    renderCurrentBar();
+    const newSvg = scoreContainer.querySelector('svg') as SVGSVGElement | null;
+    if (newSvg) {
+      for (const id of activeIds) { try { newSvg.setPointerCapture(id); } catch { } }
+    }
   }
 }
 
 function advanceBarQuietly() {
   if (!score || currentPageIndex >= pages.length - 1) return;
-  const activeIds = captureForTransition(hitTargets);
-  currentPageIndex++;
-  renderCurrentBar();
-  const newSvg = scoreContainer.querySelector('svg') as SVGSVGElement | null;
-  if (newSvg) {
-    for (const id of activeIds) { try { newSvg.setPointerCapture(id); } catch { } }
+  if (viewMode === '2player') {
+    const botIds = bottomCtx.captureForTransition(hitTargets);
+    const topIds = topCtx.captureForTransition(hitTargetsTop);
+    currentPageIndex++;
+    renderCurrentBar();
+    const botSvg = scoreContainerBot.querySelector('svg') as SVGSVGElement | null;
+    const topSvg = scoreContainerTop.querySelector('svg') as SVGSVGElement | null;
+    if (botSvg) for (const id of botIds) { try { botSvg.setPointerCapture(id); } catch { } }
+    if (topSvg) for (const id of topIds) { try { topSvg.setPointerCapture(id); } catch { } }
+  } else {
+    const activeIds = touchCtx.captureForTransition(hitTargets);
+    currentPageIndex++;
+    renderCurrentBar();
+    const newSvg = scoreContainer.querySelector('svg') as SVGSVGElement | null;
+    if (newSvg) {
+      for (const id of activeIds) { try { newSvg.setPointerCapture(id); } catch { } }
+    }
   }
 }
 
 prevBtn.addEventListener('pointerdown', e => { e.stopPropagation(); retreatBarQuietly(); });
 nextBtn.addEventListener('pointerdown', e => { e.stopPropagation(); advanceBarQuietly(); });
+
+viewSelectEl.addEventListener('change', () => {
+  viewMode = viewSelectEl.value as 'solo' | '2player';
+  document.body.classList.toggle('mode-2player', viewMode === '2player');
+  applyViewLayout(viewMode);
+
+  // Stop all notes and recreate touch contexts
+  touchCtx.stopAllNotes();
+  bottomCtx.stopAllNotes();
+  topCtx.stopAllNotes();
+  sharedCooldown = { until: 0 };
+  touchCtx  = createTouchContext();
+  bottomCtx = createTouchContext({ sharedCooldown, compact: true });
+  topCtx    = createTouchContext({ flipped: true, sharedCooldown, compact: true });
+
+  if (score) {
+    const w = (viewMode === '2player' ? scoreContainerBot.clientWidth : scoreContainer.clientWidth) || window.innerWidth;
+    const h = viewMode === '2player' ? 0 : (scoreContainer.clientHeight || 600);
+    pages           = buildPages(score, barStates, w);
+    slurStateByPage = buildSlurStates(score, barStates, pages, w, 0, undefined, false, h);
+    if (viewMode === '2player') {
+      const bottomStaffCount = Math.ceil(score.staffCount / 2);
+      const topStaffCount    = score.staffCount - bottomStaffCount;
+      slurStateByPageTop = topStaffCount > 0
+        ? buildSlurStates(score, barStates, pages, scoreContainerTop.clientWidth || window.innerWidth, bottomStaffCount, topStaffCount, true, 0)
+        : [];
+    }
+    currentPageIndex = Math.min(currentPageIndex, pages.length - 1);
+  }
+  renderCurrentBar();
+});
 
 // ── Bar jump ──────────────────────────────────────────────────────────────────
 
@@ -533,8 +685,16 @@ function loadFromText(text: string) {
   score            = parseMusicXML(text);
   barStates        = buildBarStates(score);
   const w          = scoreContainer.clientWidth || window.innerWidth;
+  const h          = viewMode === '2player' ? 0 : (scoreContainer.clientHeight || 600);
   pages            = buildPages(score, barStates, w);
-  slurStateByPage  = buildSlurStates(score, barStates, pages, w);
+  slurStateByPage  = buildSlurStates(score, barStates, pages, w, 0, undefined, false, h);
+  if (viewMode === '2player') {
+    const bottomStaffCount = Math.ceil(score.staffCount / 2);
+    const topStaffCount    = score.staffCount - bottomStaffCount;
+    slurStateByPageTop = topStaffCount > 0
+      ? buildSlurStates(score, barStates, pages, scoreContainerTop.clientWidth || window.innerWidth, bottomStaffCount, topStaffCount, true, 0)
+      : [];
+  }
   currentPageIndex = 0;
   renderCurrentBar();
 }
@@ -542,7 +702,9 @@ function loadFromText(text: string) {
 async function loadFromUrl(url: string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  loadFromText(await res.text());
+  const filename = url.split('/').pop() ?? '';
+  const xml = extractXml(filename, await res.arrayBuffer());
+  loadFromText(xml);
 }
 
 function extractXml(filename: string, data: ArrayBuffer): string {
@@ -707,10 +869,17 @@ window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
     if (score) {
-      // Rebuild pages because spacing thresholds depend on container width.
-      const w = scoreContainer.clientWidth || window.innerWidth;
+      const w = (viewMode === '2player' ? scoreContainerBot.clientWidth : scoreContainer.clientWidth) || window.innerWidth;
+      const h = viewMode === '2player' ? 0 : (scoreContainer.clientHeight || 600);
       pages = buildPages(score, barStates, w);
-      slurStateByPage = buildSlurStates(score, barStates, pages, w);
+      slurStateByPage = buildSlurStates(score, barStates, pages, w, 0, undefined, false, h);
+      if (viewMode === '2player') {
+        const bottomStaffCount = Math.ceil(score.staffCount / 2);
+        const topStaffCount    = score.staffCount - bottomStaffCount;
+        slurStateByPageTop = topStaffCount > 0
+          ? buildSlurStates(score, barStates, pages, scoreContainerTop.clientWidth || window.innerWidth, bottomStaffCount, topStaffCount, true, 0)
+          : [];
+      }
       currentPageIndex = Math.min(currentPageIndex, pages.length - 1);
     }
     renderCurrentBar();
@@ -719,4 +888,4 @@ window.addEventListener('resize', () => {
 
 document.fonts.ready.then(() => { if (score) renderCurrentBar(); });
 
-loadFromUrl('/beethoven_ode_to_joy.musicxml');
+loadFromUrl('/Plectra/Music/Song/Beethoven/ode-to-joy-ludwig-van-beethoven.mxl').catch(console.error);
